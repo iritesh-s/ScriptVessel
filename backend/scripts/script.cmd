@@ -1,0 +1,1 @@
+docker run --network none --rm --memory 1024m --cpus="0.5" -v {#root/public}:/docker_temp -w /docker_temp python:3.9-alpine python temp.py 
