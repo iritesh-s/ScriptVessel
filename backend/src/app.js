@@ -3,9 +3,12 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from 'express';
 
+import Redis from 'ioredis';
+import './workers/executionWorker.js'
 const app = express();
 const allowedOrigins = process.env.CORS_ORIGIN.split(',')
 
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379')
 
 app.use(
   cors({

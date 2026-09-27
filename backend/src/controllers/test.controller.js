@@ -7,9 +7,10 @@ import { v4 as uuidv4 } from 'uuid'; // v4 is standard for random UUIDs
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { scriptGenerator } from "../utils/scripts/scriptGenerator.js";
+import { addToQueue, executionQueue } from "../queues/codeQueue.js"
 
 // Convert the callback-based exec into a Promise-based function
-const execPromise = util.promisify(exec);
+// const execPromise = util.promisify(exec);
 
 const Mapping = {
     'python': 'py',
@@ -29,47 +30,76 @@ const execPyCode = asyncHandler(async (req, res) => {
         throw new ApiError(409, 'Empty code block!');
     }
 
-    const uid = uuidv4();
+    // const uid = uuidv4();
     
-    const userFolderPath = path.join(process.cwd(), "public", "temp");
-    const filePath = path.join(userFolderPath, `${uid}.${Mapping[language]}`);
+    // const userFolderPath = path.join(process.cwd(), "public", "temp");
+    // const filePath = path.join(userFolderPath, `${uid}.${Mapping[language]}`);
 
+    const job = await addToQueue(language , code)
+    // fs.mkdirSync(userFolderPath, { recursive: true });
     
-    fs.mkdirSync(userFolderPath, { recursive: true });
+    // try {
+    //     await fs.promises.writeFile(filePath, code);
+    // } catch (err) {
+    //     throw new ApiError(500, 'Server failed to store your code locally');
+    // }
+
+    // let output = "";
+    // let errorOutput = "";
+
+    // try {
+        
+    //     const script = scriptGenerator(language, uid, userFolderPath);
+        
+    //     const { stdout, stderr } = await execPromise(script);
+    //     output = stdout;
+    //     errorOutput = stderr;
+
+    // } catch (error) {
+    //     output = error.stdout;
+    //     errorOutput = error.stderr || error.message;
+    // } finally {
+    //     try {
+    //         await fs.promises.unlink(filePath);
+    //     } catch (unlinkErr) {
+    //         console.error("Critical: Failed to delete temp file:", filePath);
+    //     }
+    // }
+
+    return res.status(200).json(
+        new ApiResponse(202, job, "Job added to queue")
+    );
+});
+
+
+const getJobStatus  = asyncHandler(async (req, res) => {
+    const { jobId } = req.params;
     
-    try {
-        await fs.promises.writeFile(filePath, code);
-    } catch (err) {
-        throw new ApiError(500, 'Server failed to store your code locally');
+    const checkJob = await executionQueue.getJob(jobId);
+
+    if(!checkJob){
+        return res.status(404).json(new ApiResponse(404,checkJob , 'There is no such job in the queue!'))
     }
 
-    let output = "";
-    let errorOutput = "";
+    
+    const state = await checkJob.getState();
 
-    try {
-        
-        const script = scriptGenerator(language, uid, userFolderPath);
-        
-        const { stdout, stderr } = await execPromise(script);
-        output = stdout;
-        errorOutput = stderr;
-
-    } catch (error) {
-        output = error.stdout;
-        errorOutput = error.stderr || error.message;
-    } finally {
-        try {
-            await fs.promises.unlink(filePath);
-        } catch (unlinkErr) {
-            console.error("Critical: Failed to delete temp file:", filePath);
-        }
+    if (state === 'failed') {
+        return res.status(500).json(
+            new ApiResponse(500, { state, reason: checkJob.failedReason }, "Job failed execution")
+        );
     }
-
-    res.status(200).json(
-        new ApiResponse(200, { output, error: errorOutput }, "Execution completed")
+    if (state !== 'completed' && state !== 'failed') {
+    return res.status(202).json(
+        new ApiResponse(202, { state }, `The job is currently ${state}`)
+    );
+}
+    return res.status(200).json(
+        new ApiResponse(200, { state, result: checkJob.returnvalue }, "Job is completed!")
     );
 });
 
 export {
     execPyCode,
+    getJobStatus
 }
