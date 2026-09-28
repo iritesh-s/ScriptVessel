@@ -2,13 +2,70 @@ import {Worker} from 'bullmq';
 import {connection} from '../queues/codeQueue.js'
 import { v4 as uuidv4 } from 'uuid';
 import { scriptGenerator } from '../utils/scripts/scriptGenerator.js';
-import { exec } from 'node:child_process';
-import util from 'node:util';
+import {  spawn } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 
+const MAX_EXECUTION_TIME_MS = 12000; // 5 seconds
+const MAX_OUTPUT_SIZE_BYTES = 1024 * 50; // 50 KB
 
-const execPromise = util.promisify(exec);
+const executeScript = (command, args , input="") => {
+    return new Promise((resolve, reject) => {
+        
+        const child = spawn(command, args);
+
+        let stdout = '';
+        let stderr = '';
+        let outputSize = 0;
+
+        if (input) {
+            child.stdin.write(input);
+        }
+        // CRITICAL: You MUST call .end(). This sends the EOF (End of File) signal.
+        // If you don't call this, Python's input() will hang forever waiting for more text, 
+        // and your container will trigger the Time Limit Exceeded (TLE) error.
+        child.stdin.end()
+
+
+        child.stdout.on('data', (data) => {
+            outputSize += data.length;
+            if (outputSize > MAX_OUTPUT_SIZE_BYTES) {
+                child.kill('SIGKILL'); // Forcefully kill the process
+                reject({ stdout, stderr: 'Error: Output Limit Exceeded (OLE)' });
+                return;
+            }
+            stdout += data.toString();
+        });
+
+        child.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+            child.kill('SIGKILL');
+            reject({ stdout, stderr: 'Error: Time Limit Exceeded (TLE)' });
+        }, MAX_EXECUTION_TIME_MS)
+
+
+        child.on('error', (error) => {
+            clearTimeout(timeout);
+            reject({ stdout, stderr: error.message });
+        });
+
+        child.on('close', (code) => {
+            clearTimeout(timeout);
+            if (code === 0) {
+                resolve({ stdout, stderr });
+            } else if (code === null) {
+                 // The process was killed by a signal (like our OLE or TLE logic)
+                 // Do nothing, as the reject logic is handled above.
+            } else {
+                reject({ stdout, stderr: stderr || `Process exited with code ${code}` });
+            }
+        });
+    });
+};
+
 
 const Mapping = {
     'python': 'py',
@@ -22,7 +79,7 @@ const worker = new Worker(
     "executions",async (Job)=>{
         console.log("Processing code execution job...", Job.id , Job.name, Job.data);
 
-        const { language, code } = Job.data;
+        const { language, code, input } = Job.data;
 
         const uid = uuidv4();
         
@@ -42,14 +99,14 @@ const worker = new Worker(
 
         try {
             
-            const script = scriptGenerator(language, uid, userFolderPath);
+            const args = scriptGenerator(language, uid, userFolderPath);
             
-            const { stdout, stderr } = await execPromise(script);
+            const { stdout, stderr } = await executeScript('docker',args, input);
             output = stdout;
             errorOutput = stderr;
 
         } catch (error) {
-            output = error.stdout;
+            output = error.stdout || '';
             errorOutput = error.stderr || error.message;
         } finally {
             try {

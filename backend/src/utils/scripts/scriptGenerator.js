@@ -29,8 +29,17 @@ export const scriptGenerator = (language, uid, absolutePath) => {
     const runCommand = Run[language];
     const cont = container[language];
 
-   
-    const cmd = `docker run --network none --rm --memory 256m --cpus="0.5" -v "${absolutePath}":/docker_temp -w /docker_temp ${cont} ${runCommand} ${filename}`;
-    
-    return cmd;
+    return [
+        'run',
+        '-i',
+        '--network', 'none',
+        '--rm',
+        '--memory', '256m',
+        '--cpus', '0.5',
+        '-v', `${absolutePath}:/docker_temp`,
+        '-w', '/docker_temp',
+        cont,
+        runCommand,
+        filename
+    ];
 };
