@@ -104,9 +104,7 @@ if __name__ == "__main__":
         })
         
         print(f"{status_icon} Case {index + 1} -> Passed: {success} | Output: {actual_output}")
-        if not success:
-            print(f"🛑 Execution halted at Case {index + 1} due to failure.")
-            break
+
     # Write evaluation logs out to result.json
     json_filename = "result.json"
     with open(json_filename, "w", encoding="utf-8") as json_file:

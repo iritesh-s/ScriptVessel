@@ -1,0 +1,42 @@
+[
+    {
+        "passed": false,
+        "actual": "TimeoutError: Time Limit Exceeded",
+        "expected": [
+            0,
+            1
+        ]
+    },
+    {
+        "passed": false,
+        "actual": "TimeoutError: Time Limit Exceeded",
+        "expected": [
+            1,
+            2
+        ]
+    },
+    {
+        "passed": false,
+        "actual": "TimeoutError: Time Limit Exceeded",
+        "expected": [
+            0,
+            0
+        ]
+    },
+    {
+        "passed": false,
+        "actual": "IndexError: Simulated out-of-bounds error for testing!",
+        "expected": [
+            0,
+            1
+        ]
+    },
+    {
+        "passed": false,
+        "actual": "ZeroDivisionError: division by zero",
+        "expected": [
+            0,
+            1
+        ]
+    }
+]
