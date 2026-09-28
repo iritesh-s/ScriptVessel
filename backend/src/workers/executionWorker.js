@@ -79,19 +79,41 @@ const worker = new Worker(
     "executions",async (Job)=>{
         console.log("Processing code execution job...", Job.id , Job.name, Job.data);
 
-        const { language, code, input } = Job.data;
+        const { language, code, testCases } = Job.data;
 
         const uid = uuidv4();
         
-        const userFolderPath = path.join(process.cwd(), "public", "temp");
-        const filePath = path.join(userFolderPath, `${uid}.${Mapping[language]}`);
+        const userFolderPath = path.join(process.cwd(), "public", "temp", uid);
+        await fs.promises.mkdir(userFolderPath, { recursive: true });
+        
+        const codeFilePath = path.join(userFolderPath, `userCode.${Mapping[language]}`);
+        const testCaseFilePath = path.join(userFolderPath, `testCases.json`);
+        const runnerFilePath = path.join(userFolderPath, `runner.${Mapping[language]}`);
 
-        fs.mkdirSync(userFolderPath, { recursive: true });
         
         try {
-           await fs.promises.writeFile(filePath, code);
+           await fs.promises.writeFile(codeFilePath, code);
         } catch (err) {
             throw new Error(`Server failed to store your code locally: ${err.message}`);
+        }
+        try {
+            const jsonString = JSON.stringify(testCases, null, 2);
+
+            await fs.promises.writeFile(testCaseFilePath, jsonString);
+        } catch (err) {
+            throw new Error(`Server failed to store your testCases locally: ${err.message}`);
+        }
+
+        const runnerPath = path.join(process.cwd(), "scripts", `${language}.${Mapping[language]}`);
+        try {
+            const data = await fs.promises.readFile(runnerPath, 'utf8');
+            console.log(`Successfully read template file.`);
+
+            await fs.promises.writeFile(runnerFilePath, data, 'utf8');
+            console.log(`Created: ${runnerFilePath}`);
+
+        } catch (error) {
+            throw new Error(`File processing failed: ${error.message}`);
         }
 
         let output = "";
@@ -99,26 +121,39 @@ const worker = new Worker(
 
         try {
             
-            const args = scriptGenerator(language, uid, userFolderPath);
+            const args = scriptGenerator(language, userFolderPath);
             
-            const { stdout, stderr } = await executeScript('docker',args, input);
+            const { stdout, stderr } = await executeScript('docker',args);
+            
             output = stdout;
             errorOutput = stderr;
+            console.log("--- DOCKER SUCCESS STDOUT ---", output);
+
+            const resultFilePath = path.join(userFolderPath, `result.json`);
+            const data = await fs.promises.readFile(resultFilePath, 'utf-8');
+            const result = JSON.parse(data);
+
+            console.log("Execution job completed!", Job.id);
+            
+            // 3. Return the payload
+            return { docker: { output, errorOutput }, result };
 
         } catch (error) {
             output = error.stdout || '';
             errorOutput = error.stderr || error.message;
+            console.log("--- DOCKER CRASHED ---");
+            console.log("STDERR:", errorOutput);
         } finally {
             try {
-                await fs.promises.unlink(filePath);
+                await fs.promises.rm(userFolderPath, { recursive: true, force: true });
             } catch (unlinkErr) {
-                console.error("Critical: Failed to delete temp file:", filePath);
+                console.error("Critical: Failed to delete temp file:", userFolderPath);
             }
         }
+        if (errorOutput) {
+            return { output: "System Error", errorOutput: errorOutput };
+        }
 
-        console.log("Execution job completed!", Job.id , Job.name , Job.data);
-        
-        return {output , errorOutput};
     },
     {
         connection,

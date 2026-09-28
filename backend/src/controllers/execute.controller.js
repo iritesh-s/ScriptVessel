@@ -13,7 +13,7 @@ const Mapping = {
 }
 
 const execPyCode = asyncHandler(async (req, res) => {
-    const { language, code, input } = req.body;
+    const { language, code, testCases } = req.body;
     
     if (!Object.keys(Mapping).includes(language)) {
         throw new ApiError(409, 'Unsupported language selected!');
@@ -22,7 +22,7 @@ const execPyCode = asyncHandler(async (req, res) => {
         throw new ApiError(409, 'Empty code block!');
     }
 
-    const job = await addToQueue(language , code, input)
+    const job = await addToQueue(language , code, testCases)
 
     return res.status(200).json(
         new ApiResponse(202, job.id, "Job added to queue")

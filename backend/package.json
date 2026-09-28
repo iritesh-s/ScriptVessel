@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon --ignore 'public/temp/*' --env-file=.env src/index.js"
+    "dev": "nodemon --ignore public/temp/ --env-file=.env src/index.js"
   },
   "type": "module",
   "imports": {

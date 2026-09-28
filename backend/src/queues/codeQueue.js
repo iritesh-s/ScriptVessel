@@ -9,11 +9,11 @@ const connection = {
 
 const executionQueue = new Queue('executions', {connection});
 
-const addToQueue = async (language , code , input) => {
+const addToQueue = async (language , code , testCases) => {
     const job = executionQueue.add(
         "code-execution",
         {
-            language , code ,input
+            language , code ,testCases
         },
         {
             attempts: 3,

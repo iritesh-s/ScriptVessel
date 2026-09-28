@@ -24,14 +24,13 @@ const container = {
     'c' : 'gcc'
 }
 
-export const scriptGenerator = (language, uid, absolutePath) => {
-    const filename = `${uid}.${Mapping[language]}`;
+export const scriptGenerator = (language, absolutePath) => {
+    const filename = `runner.${Mapping[language]}`;
     const runCommand = Run[language];
     const cont = container[language];
 
     return [
         'run',
-        '-i',
         '--network', 'none',
         '--rm',
         '--memory', '256m',
