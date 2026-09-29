@@ -27,7 +27,8 @@ export const calculateVerdict = (workerResponse) => {
                 status: "Time Limit Exceeded",
                 failedAtCase: i + 1,
                 totalPassed,
-                totalCases: testCases.length
+                totalCases: testCases.length,
+                metrics: workerResponse.metrics
             };
         }
 
@@ -38,7 +39,8 @@ export const calculateVerdict = (workerResponse) => {
                 errorDetails: actualStr,
                 failedAtCase: i + 1,
                 totalPassed,
-                totalCases: testCases.length
+                totalCases: testCases.length,
+                metrics: workerResponse.metrics
             };
         }
 
@@ -49,7 +51,8 @@ export const calculateVerdict = (workerResponse) => {
             expected: tc.expected,
             actual: tc.actual,
             totalPassed,
-            totalCases: testCases.length
+            totalCases: testCases.length,
+            metrics: workerResponse.metrics
         };
     }
 
@@ -57,6 +60,7 @@ export const calculateVerdict = (workerResponse) => {
     return {
         status: "Accepted",
         totalPassed: testCases.length,
-        totalCases: testCases.length
+        totalCases: testCases.length,
+        metrics: workerResponse.metrics
     };
 };

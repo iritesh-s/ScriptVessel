@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import vm from 'vm';
+import { performance } from 'perf_hooks';
+
 
 // Configuration
 const TEST_CASES_PATH = './testCases.json';
@@ -11,6 +13,10 @@ const USER_METHOD = 'solve'
 
 async function runEvaluation() {
     console.log("🚀 Starting JavaScript end-to-end sandboxed evaluation...\n");
+    
+    const startMemory = process.memoryUsage().heapUsed;
+    const startTime = performance.now();
+
     let testCases = [];
     let userCode = "";
 
@@ -94,6 +100,17 @@ async function runEvaluation() {
         }
     }
 
+
+    const endTime = performance.now();
+    const endMemory = process.memoryUsage().heapUsed;
+
+    const runtimeMs = (endTime - startTime).toFixed(2);
+    const memoryMb = Math.max(0, (endMemory - startMemory) / 1024 / 1024).toFixed(2);
+
+    results.push({
+            runtimeMs,
+            memoryMb
+        });
     // 3. Write final data out
     try {
         await fs.writeFile(RESULTS_PATH, JSON.stringify(results, null, 4), 'utf8');

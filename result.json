@@ -14,5 +14,9 @@
         "passed": false,
         "actual": "TimeoutError: Time Limit Exceeded",
         "expected": "TimeoutError"
+    },
+    {
+        "runtimeMs": "2036.08",
+        "memoryMb": "0.34"
     }
 ]

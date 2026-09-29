@@ -132,11 +132,12 @@ const worker = new Worker(
             const resultFilePath = path.join(userFolderPath, `result.json`);
             const data = await fs.promises.readFile(resultFilePath, 'utf-8');
             const result = JSON.parse(data);
+            const metrics = result.metrics;
 
             console.log("Execution job completed!", Job.id);
             
             // 3. Return the payload
-            return { docker: { output, errorOutput }, result };
+            return { docker: { output, errorOutput }, result: result.results , metrics};
 
         } catch (error) {
             output = error.stdout || '';
@@ -163,9 +164,9 @@ const worker = new Worker(
 );
 
 worker.on("completed" , (job) => {
-    console.log("Job completed!" , job.id , job.name , job.data);
+    console.log("Job completed!" , job.id , job.name);
 })
 
 worker.on("failed" , (job, err) => {
-    console.log("Job failed!" , job.id , job.name , job.data , err);
+    console.log("Job failed!" , job.id , job.name, err);
 })

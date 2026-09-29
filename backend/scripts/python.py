@@ -2,40 +2,47 @@ import importlib.util
 import json
 import multiprocessing
 import sys
+import time
+import tracemalloc
 
-# 1. This function runs inside the ISOLATED child process
 def worker_evaluator(script_path, module_name, method_name, test_inputs, result_queue):
     try:
-        # Dynamically load the user's code inside the child process space
+        # Start tracking memory inside the child process
+        tracemalloc.start()
+        start_time = time.perf_counter()
+
         spec = importlib.util.spec_from_file_location(module_name, script_path)
         user_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(user_module)
         
         if not hasattr(user_module, "Solution"):
-            result_queue.put((False, "AttributeError: Class 'Solution' not found."))
+            result_queue.put((False, "AttributeError: Class 'Solution' not found.", 0, 0))
             return
             
         sol = user_module.Solution()
         target_method = getattr(sol, method_name, None)
         
         if not target_method:
-            result_queue.put((False, f"AttributeError: Method '{method_name}' not found."))
+            result_queue.put((False, f"AttributeError: Method '{method_name}' not found.", 0, 0))
             return
             
-        # Execute the function and return the results
         actual_output = target_method(*test_inputs)
-        result_queue.put((True, actual_output))
+        
+        # Calculate single test case metrics
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        _, peak_mem = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        mem_mb = peak_mem / (1024 * 1024)
+
+        result_queue.put((True, actual_output, elapsed_ms, mem_mb))
         
     except Exception as e:
-        # Catch standard crashes (ZeroDivisionError, IndexError, etc.)
         error_msg = f"{type(e).__name__}: {str(e)}"
-        result_queue.put((False, error_msg))
+        result_queue.put((False, error_msg, 0, 0))
 
 if __name__ == "__main__":
-    # Required for multiprocessing safely on Windows/macOS
     multiprocessing.freeze_support()
 
-    # Load Test Cases
     file_path = "testCases.json"
     try:
         with open(file_path, "r", encoding="utf-8") as file:
@@ -49,7 +56,9 @@ if __name__ == "__main__":
     module_name = "userCode"
     method_name = "solve"
     
-    TIMEOUT_LIMIT = 2.0  # Execution timeout window per test case in seconds
+    TIMEOUT_LIMIT = 2.0
+    total_runtime_ms = 0.0
+    max_memory_mb = 0.0
 
     print(f"Starting isolated evaluations with a {TIMEOUT_LIMIT}s timeout limit...\n")
 
@@ -57,46 +66,40 @@ if __name__ == "__main__":
         test_inputs = item.get("inputs", [])
         expected = item.get("expectedOutput")
         
-        # Communication channel between processes
         result_queue = multiprocessing.Queue()
-        
-        # Initialize the target evaluation into a dedicated child process
         process = multiprocessing.Process(
             target=worker_evaluator,
             args=(script_path, module_name, method_name, test_inputs, result_queue)
         )
         
         process.start()
-        
-        # Wait up to the timeout limit for the process to conclude
         process.join(timeout=TIMEOUT_LIMIT)
         
         if process.is_alive():
-            # 🚨 CRITICAL: The process is stuck in an infinite loop! Terminate it immediately.
             process.terminate()
-            process.join()  # Clear up operating system resources cleanly
-            
+            process.join()
             success = False
             actual_output = "TimeoutError: Time Limit Exceeded"
             status_icon = "⏳"
         else:
-            # Process finished. Extract the resulting values safely from the queue.
             if not result_queue.empty():
-                success_flag, payload = result_queue.get()
+                success_flag, payload, tc_time, tc_mem = result_queue.get()
+                total_runtime_ms += tc_time
+                max_memory_mb = max(max_memory_mb, tc_mem)
+
                 if success_flag:
                     actual_output = payload
                     success = (actual_output == expected)
                     status_icon = "✅" if success else "❌"
                 else:
                     success = False
-                    actual_output = payload  # This is the trapped error message string
+                    actual_output = payload
                     status_icon = "❌"
             else:
                 success = False
                 actual_output = "RuntimeError: Unknown process death"
                 status_icon = "❌"
 
-        # Append structured metrics
         results.append({
             "passed": bool(success),
             "actual": actual_output,
@@ -107,9 +110,17 @@ if __name__ == "__main__":
         if not success:
             print(f"🛑 Execution halted at Case {index + 1} due to failure.")
             break
-    # Write evaluation logs out to result.json
-    json_filename = "result.json"
-    with open(json_filename, "w", encoding="utf-8") as json_file:
-        json.dump(results, json_file, indent=4)
 
-    print(f"\nAll logs safely generated in '{json_filename}'!")
+    # Structure final JSON payload cleanly
+    final_output = {
+        "results": results,
+        "metrics": {
+            "runtimeMs": round(total_runtime_ms, 2),
+            "memoryMb": round(max_memory_mb, 2)
+        }
+    }
+
+    with open("result.json", "w", encoding="utf-8") as json_file:
+        json.dump(final_output, json_file, indent=4)
+
+    print(f"\nAll logs safely generated in 'result.json'!")
