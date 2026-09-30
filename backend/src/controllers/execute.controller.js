@@ -16,8 +16,7 @@ const execPyCode = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const {problemId} = req.params;
     const { language, code, testCases } = req.body;
-    console.log('PROBLEM: ', problemId)
-    console.log('USER: ', userId)
+    
     if (!Object.keys(Mapping).includes(language)) {
         throw new ApiError(409, 'Unsupported language selected!');
     }

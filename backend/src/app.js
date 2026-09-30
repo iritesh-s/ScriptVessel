@@ -28,11 +28,13 @@ app.use(cookieParser())
 import testRouter from './routes/test.route.js';
 import authRouter from './routes/auth.route.js';
 import executeRouter from './routes/execute.route.js'
+import statsRouter from './routes/stats.route.js'
 
 //adding them to app
 app.use('/remoteSandbox/v1/auth',authRouter);
 app.use('/remoteSandbox/v1/test', testRouter);
 app.use('/remoteSandbox/v1/execute', executeRouter);
+app.use('/remoteSandbox/v1/stats', statsRouter);
 
 export {
   app
