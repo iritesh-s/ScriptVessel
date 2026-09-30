@@ -139,13 +139,17 @@ const worker = new Worker(
             console.log("--- DOCKER CRASHED ---");
             console.log("STDERR:", errorOutput);
 
+            const isInfraFailure = 
+                errorOutput.includes("Docker") ||
+                errorOutput.includes("ENOENT") ||
+                errorOutput.includes("SIGKILL") ||
+                !output;
+
             verdict = {
-                status: errorOutput.includes("Time Limit Exceeded")
-                    ? "Time Limit Exceeded"
-                    : errorOutput.includes("Output Limit Exceeded")
-                    ? "Output Limit Exceeded"
-                    : "Runtime Error",
-                details: errorOutput
+                status: isInfraFailure ? "System Error" : "Runtime Error",
+                details: isInfraFailure 
+                    ? "Judge encountered an internal execution failure. This run will not count against your score."
+                    : errorOutput
             };
         } finally {
             // Clean up temporary workspace directory
