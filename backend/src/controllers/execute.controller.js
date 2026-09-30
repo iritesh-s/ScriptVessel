@@ -13,8 +13,11 @@ const Mapping = {
 }
 
 const execPyCode = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const {problemId} = req.params;
     const { language, code, testCases } = req.body;
-    
+    console.log('PROBLEM: ', problemId)
+    console.log('USER: ', userId)
     if (!Object.keys(Mapping).includes(language)) {
         throw new ApiError(409, 'Unsupported language selected!');
     }
@@ -22,7 +25,7 @@ const execPyCode = asyncHandler(async (req, res) => {
         throw new ApiError(409, 'Empty code block!');
     }
 
-    const job = await addToQueue(language , code, testCases)
+    const job = await addToQueue(language , code, testCases, problemId, userId)
 
     return res.status(200).json(
         new ApiResponse(202, job.id, "Job added to queue")
@@ -30,37 +33,57 @@ const execPyCode = asyncHandler(async (req, res) => {
 });
 
 
-const getJobStatus  = asyncHandler(async (req, res) => {
+const getJobStatus = asyncHandler(async (req, res) => {
     const { jobId } = req.params;
-    
+
     const checkJob = await executionQueue.getJob(jobId);
 
-    if(!checkJob){
-        return res.status(404).json(new ApiResponse(404,checkJob , 'There is no such job in the queue!'))
+    if (!checkJob) {
+        return res.status(404).json(
+            new ApiResponse(404, null, 'There is no such job in the queue!')
+        );
     }
 
-    
     const state = await checkJob.getState();
 
     if (state === 'failed') {
         return res.status(500).json(
-            new ApiResponse(500, { success: false, state: "failed", message: job.failedReason }, "Job failed execution")
+            new ApiResponse(
+                500,
+                { 
+                    success: false, 
+                    state: "failed", 
+                    error: checkJob.failedReason || "Worker execution failed" 
+                },
+                "Job failed execution"
+            )
         );
     }
-    if (state !== 'completed' && state !== 'failed') {
+
+    if (state !== 'completed') {
         return res.status(202).json(
-            new ApiResponse(202, { success: true, state }, `The job is currently ${state}`)
+            new ApiResponse(
+                202,
+                { success: true, state },
+                `The job is currently ${state}`
+            )
         );
     }
-    const finalVerdict = calculateVerdict(checkJob.returnvalue);
-    
+
+    const returnVal = checkJob.returnvalue || {};
     return res.status(200).json(
-        new ApiResponse(200,{
-        success: true,
-        state: "completed",
-        verdict: finalVerdict,           // "Accepted", "Wrong Answer", etc.
-        rawMetrics: checkJob.returnvalue.result // Keep the raw array for frontend UI details
-    }, "Job is completed!")
+        new ApiResponse(
+            200,
+            {
+                success: true,
+                state: "completed",
+                verdict: returnVal.verdict || { status: "Unknown" },
+                metrics: returnVal.metrics || { runtimeMs: 0, memoryMb: 0 },
+                results: returnVal.results || returnVal.result || [],
+                submissionId: returnVal.submissionId || null
+            },
+            "Job is completed!"
+        )
     );
 });
 

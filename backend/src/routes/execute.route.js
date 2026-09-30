@@ -5,7 +5,7 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 const router = new Router();
 
 
-router.route("/executeCode").post(verifyJWT,execPyCode);
+router.route("/executeInterpreterCode/:problemId").post(verifyJWT,execPyCode);
 router.route("/checkJob/:jobId").get(verifyJWT,getJobStatus);
 
 export default router;

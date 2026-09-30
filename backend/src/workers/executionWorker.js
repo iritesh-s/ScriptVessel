@@ -5,6 +5,8 @@ import { scriptGenerator } from '../utils/scripts/scriptGenerator.js';
 import {  spawn } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
+import { saveSubmission } from '../db/operations.js';
+import { calculateVerdict } from '../utils/validation/calculateVerdict.js';
 
 const MAX_EXECUTION_TIME_MS = 12000; // 5 seconds
 const MAX_OUTPUT_SIZE_BYTES = 1024 * 50; // 50 KB
@@ -76,97 +78,121 @@ const Mapping = {
 };
 
 const worker = new Worker(
-    "executions",async (Job)=>{
-        console.log("Processing code execution job...", Job.id , Job.name, Job.data);
+    "executions",
+    async (Job) => {
+        console.log("Processing code execution job...", Job.id, Job.name, Job.data);
 
-        const { language, code, testCases } = Job.data;
-
+        // 1. Destructure all required fields from Job.data
+        const { userId, problemId, language, code, testCases } = Job.data;
+        console.log('PROBLEM: ', problemId)
+        console.log('USER: ', userId)
         const uid = uuidv4();
-        
         const userFolderPath = path.join(process.cwd(), "public", "temp", uid);
         await fs.promises.mkdir(userFolderPath, { recursive: true });
-        
+
         const codeFilePath = path.join(userFolderPath, `userCode.${Mapping[language]}`);
         const testCaseFilePath = path.join(userFolderPath, `testCases.json`);
         const runnerFilePath = path.join(userFolderPath, `runner.${Mapping[language]}`);
-
-        
-        try {
-           await fs.promises.writeFile(codeFilePath, code);
-        } catch (err) {
-            throw new Error(`Server failed to store your code locally: ${err.message}`);
-        }
-        try {
-            const jsonString = JSON.stringify(testCases, null, 2);
-
-            await fs.promises.writeFile(testCaseFilePath, jsonString);
-        } catch (err) {
-            throw new Error(`Server failed to store your testCases locally: ${err.message}`);
-        }
-
         const runnerPath = path.join(process.cwd(), "scripts", `${language}.${Mapping[language]}`);
+
         try {
-            const data = await fs.promises.readFile(runnerPath, 'utf8');
-            console.log(`Successfully read template file.`);
-
-            await fs.promises.writeFile(runnerFilePath, data, 'utf8');
-            console.log(`Created: ${runnerFilePath}`);
-
-        } catch (error) {
-            throw new Error(`File processing failed: ${error.message}`);
+            await fs.promises.writeFile(codeFilePath, code);
+            await fs.promises.writeFile(testCaseFilePath, JSON.stringify(testCases, null, 2));
+            const templateData = await fs.promises.readFile(runnerPath, 'utf8');
+            await fs.promises.writeFile(runnerFilePath, templateData, 'utf8');
+        } catch (err) {
+            await fs.promises.rm(userFolderPath, { recursive: true, force: true }).catch(() => {});
+            throw new Error(`File setup failed: ${err.message}`);
         }
 
+        // 2. Pre-declare variables in the function scope
         let output = "";
         let errorOutput = "";
+        let parsedResults = [];
+        let metrics = { runtimeMs: 0, memoryMb: 0 };
+        let verdict = null;
 
         try {
-            
             const args = scriptGenerator(language, userFolderPath);
-            
-            const { stdout, stderr } = await executeScript('docker',args);
-            
+            const { stdout, stderr } = await executeScript('docker', args);
+
             output = stdout;
             errorOutput = stderr;
             console.log("--- DOCKER SUCCESS STDOUT ---", output);
 
             const resultFilePath = path.join(userFolderPath, `result.json`);
             const data = await fs.promises.readFile(resultFilePath, 'utf-8');
-            const result = JSON.parse(data);
-            const metrics = result.metrics;
+            const resultData = JSON.parse(data);
 
-            console.log("Execution job completed!", Job.id);
-            
-            // 3. Return the payload
-            return { docker: { output, errorOutput }, result: result.results , metrics};
+            parsedResults = resultData.results || resultData.result || [];
+            metrics = resultData.metrics || { runtimeMs: 0, memoryMb: 0 };
+
+            verdict = calculateVerdict({
+                docker: { output, errorOutput },
+                results: parsedResults,
+                metrics
+            });
 
         } catch (error) {
             output = error.stdout || '';
             errorOutput = error.stderr || error.message;
             console.log("--- DOCKER CRASHED ---");
             console.log("STDERR:", errorOutput);
+
+            verdict = {
+                status: errorOutput.includes("Time Limit Exceeded")
+                    ? "Time Limit Exceeded"
+                    : errorOutput.includes("Output Limit Exceeded")
+                    ? "Output Limit Exceeded"
+                    : "Runtime Error",
+                details: errorOutput
+            };
         } finally {
+            // Clean up temporary workspace directory
             try {
                 await fs.promises.rm(userFolderPath, { recursive: true, force: true });
             } catch (unlinkErr) {
-                console.error("Critical: Failed to delete temp file:", userFolderPath);
+                console.error("Critical: Failed to delete temp directory:", userFolderPath);
             }
         }
-        if (errorOutput) {
-            return { output: "System Error", errorOutput: errorOutput };
+
+        // 3. Persist to PostgreSQL regardless of success or failure
+        let savedRow = null;
+        try {
+            savedRow = await saveSubmission({
+                userId: userId || 'anonymous',
+                problemId: problemId || 'unknown',
+                code,
+                language,
+                verdict: verdict.status,
+                runtimeMs: metrics.runtimeMs,
+                memoryMb: metrics.memoryMb
+            });
+        } catch (dbErr) {
+            console.error("Failed to persist submission to database:", dbErr);
         }
 
+        console.log("Execution job completed!", Job.id);
+
+        // 4. Return single consolidated payload to BullMQ
+        return {
+            docker: { output, errorOutput },
+            verdict,
+            results: parsedResults,
+            metrics,
+            submissionId: savedRow?.id
+        };
     },
     {
         connection,
         concurrency: 5
     }
-    
 );
 
-worker.on("completed" , (job) => {
-    console.log("Job completed!" , job.id , job.name);
-})
+worker.on("completed", (job) => {
+    console.log("Job completed!", job.id, job.name);
+});
 
-worker.on("failed" , (job, err) => {
-    console.log("Job failed!" , job.id , job.name, err);
-})
+worker.on("failed", (job, err) => {
+    console.log("Job failed!", job.id, job.name, err);
+});

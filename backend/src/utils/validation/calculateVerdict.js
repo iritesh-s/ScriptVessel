@@ -1,66 +1,67 @@
-export const calculateVerdict = (workerResponse) => {
-    // 1. Check for total system failure (Docker crashed, no JSON generated)
-    if (workerResponse.output === "System Error" || !workerResponse.result) {
+// src/utils/verdict.js
+
+export const calculateVerdict = ({ docker = {}, results = [], metrics = { runtimeMs: 0, memoryMb: 0 } }) => {
+    const errorOutput = docker.errorOutput || "";
+
+    // 1. If no test cases ran or were returned
+    if (!results || !Array.isArray(results) || results.length === 0) {
         return {
             status: "Internal Server Error",
-            details: workerResponse.errorOutput || "Unknown system crash"
+            details: errorOutput || "No test case results produced by the runner.",
+            metrics
         };
     }
 
-    const testCases = workerResponse.result;
     let totalPassed = 0;
 
-    // 2. Scan the test cases for the first failure
-    for (let i = 0; i < testCases.length; i++) {
-        const tc = testCases[i];
+    // 2. Scan test cases for the first failure (Fail-Fast)
+    for (let i = 0; i < results.length; i++) {
+        const tc = results[i];
 
         if (tc.passed) {
             totalPassed++;
             continue;
         }
 
-        // FAIL-FAST: The moment we hit a failure, determine the specific error type
-        const actualStr = String(tc.actual);
+        const actualStr = String(tc.actual ?? "");
 
         if (actualStr.includes("TimeoutError")) {
             return {
                 status: "Time Limit Exceeded",
                 failedAtCase: i + 1,
                 totalPassed,
-                totalCases: testCases.length,
-                metrics: workerResponse.metrics
+                totalCases: results.length,
+                metrics
             };
         }
 
-        if (actualStr.includes("Error:") || actualStr.includes("Error")) {
-            // Catches TypeError, ReferenceError, SyntaxError, etc.
+        if (actualStr.includes("Error:") || actualStr.includes("Error") || actualStr.includes("ReferenceError")) {
             return {
                 status: "Runtime Error",
                 errorDetails: actualStr,
                 failedAtCase: i + 1,
                 totalPassed,
-                totalCases: testCases.length,
-                metrics: workerResponse.metrics
+                totalCases: results.length,
+                metrics
             };
         }
 
-        // If it's not a timeout or a crash, it's just the wrong output
         return {
             status: "Wrong Answer",
             failedAtCase: i + 1,
             expected: tc.expected,
             actual: tc.actual,
             totalPassed,
-            totalCases: testCases.length,
-            metrics: workerResponse.metrics
+            totalCases: results.length,
+            metrics
         };
     }
 
-    // 3. If the loop finishes without returning, everything passed!
+    // 3. All test cases passed
     return {
         status: "Accepted",
-        totalPassed: testCases.length,
-        totalCases: testCases.length,
-        metrics: workerResponse.metrics
+        totalPassed,
+        totalCases: results.length,
+        metrics
     };
 };
