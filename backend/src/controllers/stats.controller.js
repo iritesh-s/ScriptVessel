@@ -1,7 +1,7 @@
 import { asyncHandler } from "../utils/asyncHandler.js"
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { getSubmissions } from "../db/operations.js";
+import { calculateSubmissionMetrics, getProblemDistributions, getSubmissionById, getSubmissions} from "../db/operations.js";
 
 const getProblemStats = asyncHandler(async (req, res) => {
     const userId = req.user._id;
@@ -26,8 +26,27 @@ const getProblemStats = asyncHandler(async (req, res) => {
     );
 });
 
+const getSubmissionStats = asyncHandler(async(req,res)=> {
+    const userId = req.user._id.toString();
+    const {submissionId} = req.params;
 
+    const submission = await getSubmissionById(submissionId,userId);
+    if(!submission){
+        throw new ApiError(500,`Failed to fetch the submission with id: ${submissionId} from database.`)
+    }
+    const {problem_id, verdict , runtime_ms , memory_mb,language} = submission;
+    const stats = await calculateSubmissionMetrics(problem_id,verdict,runtime_ms,memory_mb);
+    if(!stats){
+        throw new ApiError(500,`Failed to fetch the stats for submission with id: ${submissionId} from database.`)
+    }
+
+    const buckets = await getProblemDistributions(problem_id,language);
+    return res.status(200).json(
+        new ApiResponse(200, {stats,submission,buckets},'The submission was fetched successfully!')
+    );
+})
 
 export {
-    getProblemStats
+    getProblemStats,
+    getSubmissionStats
 }
